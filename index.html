@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nano 33 BLE 알림 수신</title>
+    <style>
+        body { 
+            font-family: 'Unbounded', sans-serif; 
+            text-align: center; 
+            padding: 30px; 
+            background-color: #f4f4f4;
+        }
+        h1 { margin-bottom: 30px; font-size: 24px; }
+        
+        button { 
+            padding: 20px 40px; 
+            font-size: 18px; 
+            background-color: #007bff; 
+            color: white; 
+            border: none; 
+            border-radius: 10px;
+            cursor: pointer;
+            width: 100%;
+            max-width: 300px;
+        }
+        button:active { background-color: #0056b3; }
+
+        #status { 
+            margin-top: 40px; 
+            font-size: 20px; 
+            font-weight: bold; 
+            color: #555; 
+            padding: 20px;
+            border-radius: 10px;
+            background: white;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        /* 알림 울릴 때 화면 효과 */
+        .alert-mode {
+            background-color: #ff4444 !important;
+            color: white !important;
+            animation: blink 0.5s infinite;
+        }
+
+        @keyframes blink {
+            0% { opacity: 1; }
+            50% { opacity: 0.8; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>🔔 Nano 33 BLE 수신기</h1>
+    
+    <button id="connectBtn">블루투스 연결하기</button>
+    
+    <div id="status">연결 대기 중...</div>
+
+    <script>
+        // =================================================================
+        // [중요] 아두이노 코드에 적은 UUID와 똑같이 적어야 합니다.
+        // (대소문자 구분 없음, 아두이노 코드 복사해서 붙여넣으세요)
+        // =================================================================
+        const serviceUUID = "19B10000-E8F2-537E-4F6C-D104768A7777"; 
+        const charUUID    = "19B10001-E8F2-537E-4F6C-D104768A7777";
+
+        const connectBtn = document.getElementById('connectBtn');
+        const statusDiv = document.getElementById('status');
+
+        connectBtn.addEventListener('click', async () => {
+            try {
+                // 1. 장치 검색
+                statusDiv.innerText = "🔍 장치 검색 중...";
+                const device = await navigator.bluetooth.requestDevice({
+                    filters: [{ services: [serviceUUID] }]
+                });
+
+                // 2. 연결 시도
+                statusDiv.innerText = "🔗 연결 중...";
+                const server = await device.gatt.connect();
+                
+                // 3. 서비스 및 특성 가져오기
+                const service = await server.getPrimaryService(serviceUUID);
+                const characteristic = await service.getCharacteristic(charUUID);
+
+                // 4. 알림(Notify) 활성화
+                await characteristic.startNotifications();
+                statusDiv.innerText = "✅ 연결됨! (신호 대기 중)";
+                
+                // 5. 데이터 수신 시 동작 (핵심 로직)
+                characteristic.addEventListener('characteristicvaluechanged', (event) => {
+                    // 데이터 읽기 (1바이트 정수)
+                    const value = event.target.value.getUint8(0); 
+                    console.log("받은 값:", value);
+
+                    if (value === 1) {
+                        // 🚨 값 1을 받으면: 화면 빨갛게 + 진동
+                        statusDiv.innerText = "🚨 알림 수신! (값: 1)";
+                        statusDiv.className = "alert-mode"; // 빨간 화면 효과 켬
+                        
+                        // 진동 울리기 (1초 징- 0.2초 쉼 1초 징-)
+                        // 주의: 아이폰(iOS)은 정책상 웹 진동을 막아놔서 안 울릴 수 있음
+                        if (navigator.vibrate) {
+                            navigator.vibrate([1000, 200, 1000]); 
+                        }
+
+                    } else {
+                        // 값이 1이 아니면(0 등): 정상 상태로 복귀
+                        statusDiv.innerText = "✅ 정상 (신호 대기 중)";
+                        statusDiv.className = ""; // 효과 끔
+                    }
+                });
+
+                // 연결 끊겼을 때 처리
+                device.addEventListener('gattserverdisconnected', () => {
+                    statusDiv.innerText = "❌ 연결 끊김";
+                    statusDiv.className = "";
+                    alert("블루투스 연결이 끊어졌습니다.");
+                });
+
+            } catch (error) {
+                console.error(error);
+                statusDiv.innerText = "에러 발생: " + error;
+                // 사용자가 취소했을 때는 조용히 넘어가기
+                if (!error.toString().includes("cancelled")) {
+                    alert("연결 실패! 아두이노 전원과 UUID를 확인하세요.");
+                }
+            }
+        });
+    </script>
+</body>
+</html>
