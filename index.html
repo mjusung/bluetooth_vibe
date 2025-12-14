@@ -72,6 +72,15 @@
 
         connectBtn.addEventListener('click', async () => {
             try {
+
+                if ('wakeLock' in navigator) {
+                    try {
+                        const wakeLock = await navigator.wakeLock.request('screen');
+                        console.log("💡 화면 켜짐 유지 모드 활성화됨");
+                    } catch (err) {
+                        console.log("화면 유지 실패:", err);
+                    }
+                }
                 // 1. 장치 검색
                 statusDiv.innerText = "🔍 장치 검색 중...";
                 const device = await navigator.bluetooth.requestDevice({
