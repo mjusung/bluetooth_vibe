@@ -3,144 +3,120 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nano 33 BLE 알림 수신</title>
+    <title>Nano 33 BLE 안전모 (백그라운드)</title>
     <style>
-        body { 
-            font-family: 'Unbounded', sans-serif; 
-            text-align: center; 
-            padding: 30px; 
-            background-color: #f4f4f4;
-        }
-        h1 { margin-bottom: 30px; font-size: 24px; }
-        
+        body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #222; color: white; }
+        h1 { color: #ffeb3b; }
         button { 
-            padding: 20px 40px; 
-            font-size: 18px; 
-            background-color: #007bff; 
-            color: white; 
-            border: none; 
-            border-radius: 10px;
-            cursor: pointer;
-            width: 100%;
-            max-width: 300px;
+            padding: 20px; width: 100%; font-size: 18px; margin-top: 20px; 
+            border-radius: 10px; border: none; font-weight: bold; cursor: pointer;
         }
-        button:active { background-color: #0056b3; }
-
-        #status { 
-            margin-top: 40px; 
-            font-size: 20px; 
-            font-weight: bold; 
-            color: #555; 
-            padding: 20px;
-            border-radius: 10px;
-            background: white;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
-
-        /* 알림 울릴 때 화면 효과 */
-        .alert-mode {
-            background-color: #ff4444 !important;
-            color: white !important;
-            animation: blink 0.5s infinite;
-        }
-
-        @keyframes blink {
-            0% { opacity: 1; }
-            50% { opacity: 0.8; }
-            100% { opacity: 1; }
-        }
+        #connectBtn { background-color: #007bff; color: white; }
+        #status { margin-top: 30px; font-size: 18px; padding: 20px; background: #333; border-radius: 10px;}
+        
+        .alert { background-color: red !important; animation: flash 0.5s infinite; }
+        @keyframes flash { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
     </style>
 </head>
 <body>
 
-    <h1>🔔 Nano 33 BLE 수신기</h1>
+    <h1>⛑️ 안전모 백그라운드 감지</h1>
     
-    <button id="connectBtn">블루투스 연결하기</button>
-    
-    <div id="status">연결 대기 중...</div>
+    <audio id="alertSound" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" preload="auto"></audio>
+
+    <audio id="silence" loop>
+        <source src="https://raw.githubusercontent.com/anars/blank-audio/master/1-second-of-silence.mp3" type="audio/mpeg">
+    </audio>
+
+    <button id="connectBtn">🔵 블루투스 연결 & 모니터링 시작</button>
+    <div id="status">대기 중...</div>
 
     <script>
-        // =================================================================
-        // [중요] 아두이노 코드에 적은 UUID와 똑같이 적어야 합니다.
-        // (대소문자 구분 없음, 아두이노 코드 복사해서 붙여넣으세요)
-        // =================================================================
+        // UUID (소문자 필수)
         const serviceUUID = "19b10000-e8f2-537e-4f6c-d104768a7777"; 
-        const charUUID    = "19c10001-e8f2-537e-4f6c-d104768a7777";
+        const charUUID    = "19b10001-e8f2-537e-4f6c-d104768a7777";
 
         const connectBtn = document.getElementById('connectBtn');
         const statusDiv = document.getElementById('status');
+        const alertSound = document.getElementById('alertSound');
+        const silence = document.getElementById('silence');
 
         connectBtn.addEventListener('click', async () => {
             try {
-
-                // 0. 알림 권한 요청 (상단 배너용)
-                if (Notification.permission !== 'granted') {
-                    await Notification.requestPermission();
+                // 1. 생존 전략: 무음 오디오 재생하여 "미디어 세션" 활성화
+                silence.play();
+                
+                if ('mediaSession' in navigator) {
+                    navigator.mediaSession.metadata = new MediaMetadata({
+                        title: '안전 모니터링 중...',
+                        artist: 'Nano 33 BLE',
+                        album: '백그라운드 실행 모드',
+                        artwork: [
+                            { src: 'https://cdn-icons-png.flaticon.com/512/1161/1161388.png', sizes: '512x512', type: 'image/png' }
+                        ]
+                    });
+                    navigator.mediaSession.setActionHandler('play', () => silence.play());
+                    navigator.mediaSession.setActionHandler('pause', () => silence.play()); // 멈춰도 다시 재생 강제
                 }
-                // 1. 장치 검색
+
+                // 2. 블루투스 연결
                 statusDiv.innerText = "🔍 장치 검색 중...";
                 const device = await navigator.bluetooth.requestDevice({
                     filters: [{ services: [serviceUUID] }]
                 });
 
-                // 2. 연결 시도
-                statusDiv.innerText = "🔗 연결 중...";
                 const server = await device.gatt.connect();
-                
-                // 3. 서비스 및 특성 가져오기
                 const service = await server.getPrimaryService(serviceUUID);
                 const characteristic = await service.getCharacteristic(charUUID);
 
-                // 4. 알림(Notify) 활성화
                 await characteristic.startNotifications();
-                statusDiv.innerText = "✅ 연결됨! (신호 대기 중)";
-                
-                // 5. 데이터 수신 시 동작 (핵심 로직)
+                statusDiv.innerText = "✅ 연결됨! (이제 홈버튼 눌러도 됨)";
+                statusDiv.style.backgroundColor = "#28a745";
+
+                // 3. 데이터 수신
                 characteristic.addEventListener('characteristicvaluechanged', (event) => {
-                    // 데이터 읽기 (1바이트 정수)
-                    const value = event.target.value.getUint8(0); 
-                    console.log("받은 값:", value);
+                    const value = event.target.value.getUint8(0);
+                    console.log("수신값:", value);
 
                     if (value === 1) {
-                        // 🚨 값 1을 받으면: 화면 빨갛게 + 진동
-                        statusDiv.innerText = "🚨 알림 수신! (값: 1)";
-                        statusDiv.className = "alert-mode"; // 빨간 화면 효과 켬
-                        
-                        // 진동 울리기 (1초 징- 0.2초 쉼 1초 징-)
-                        // 주의: 아이폰(iOS)은 정책상 웹 진동을 막아놔서 안 울릴 수 있음
-                        if (navigator.vibrate) {
-                            navigator.vibrate([1000, 200, 1000]); 
-                        }
+                        statusDiv.innerText = "🚨 위험! 충격 감지!";
+                        statusDiv.className = "alert";
 
-                        // ★ 상단 시스템 배너 알림 띄우기 (백그라운드일 때 그나마 도움됨)
+                        // [핵심] 백그라운드 알림 (소리 + 시스템 알림)
+                        
+                        // A. 소리 재생 (백그라운드에서도 잘 됨)
+                        alertSound.volume = 1.0;
+                        alertSound.play();
+
+                        // B. 시스템 배너 알림
                         if (Notification.permission === "granted") {
-                            new Notification("🚨 긴급 알림", {
-                                body: "충격이 감지되었습니다!",
-                                icon: "https://cdn-icons-png.flaticon.com/512/564/564619.png" // 경고 아이콘 예시
+                            new Notification("🚨 긴급 구조 신호", {
+                                body: "사용자의 충격이 감지되었습니다!",
+                                icon: "https://cdn-icons-png.flaticon.com/512/564/564619.png",
+                                vibrate: [200, 100, 200] // 알림 자체 진동
                             });
                         }
 
+                        // C. 웹 진동 (백그라운드에선 차단될 수 있음, 시도는 함)
+                        if (navigator.vibrate) navigator.vibrate([1000, 200, 1000]); 
+
                     } else {
-                        // 값이 1이 아니면(0 등): 정상 상태로 복귀
-                        statusDiv.innerText = "✅ 정상 (신호 대기 중)";
-                        statusDiv.className = ""; // 효과 끔
+                        statusDiv.innerText = "✅ 모니터링 중...";
+                        statusDiv.className = "";
                     }
                 });
 
-                // 연결 끊겼을 때 처리
+                // 알림 권한 미리 요청
+                Notification.requestPermission();
+
                 device.addEventListener('gattserverdisconnected', () => {
-                    statusDiv.innerText = "❌ 연결 끊김";
-                    statusDiv.className = "";
-                    alert("블루투스 연결이 끊어졌습니다.");
+                    alert("연결 끊김! 다시 연결하세요.");
+                    statusDiv.style.backgroundColor = "#333";
                 });
 
             } catch (error) {
                 console.error(error);
-                statusDiv.innerText = "에러 발생: " + error;
-                // 사용자가 취소했을 때는 조용히 넘어가기
-                if (!error.toString().includes("cancelled")) {
-                    alert("연결 실패! 아두이노 전원과 UUID를 확인하세요.");
-                }
+                statusDiv.innerText = "에러: " + error;
             }
         });
     </script>
