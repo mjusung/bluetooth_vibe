@@ -73,13 +73,9 @@
         connectBtn.addEventListener('click', async () => {
             try {
 
-                if ('wakeLock' in navigator) {
-                    try {
-                        const wakeLock = await navigator.wakeLock.request('screen');
-                        console.log("💡 화면 켜짐 유지 모드 활성화됨");
-                    } catch (err) {
-                        console.log("화면 유지 실패:", err);
-                    }
+                // 0. 알림 권한 요청 (상단 배너용)
+                if (Notification.permission !== 'granted') {
+                    await Notification.requestPermission();
                 }
                 // 1. 장치 검색
                 statusDiv.innerText = "🔍 장치 검색 중...";
@@ -114,6 +110,14 @@
                         // 주의: 아이폰(iOS)은 정책상 웹 진동을 막아놔서 안 울릴 수 있음
                         if (navigator.vibrate) {
                             navigator.vibrate([1000, 200, 1000]); 
+                        }
+
+                        // ★ 상단 시스템 배너 알림 띄우기 (백그라운드일 때 그나마 도움됨)
+                        if (Notification.permission === "granted") {
+                            new Notification("🚨 긴급 알림", {
+                                body: "충격이 감지되었습니다!",
+                                icon: "https://cdn-icons-png.flaticon.com/512/564/564619.png" // 경고 아이콘 예시
+                            });
                         }
 
                     } else {
